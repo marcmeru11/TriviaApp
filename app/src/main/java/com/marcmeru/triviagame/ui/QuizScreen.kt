@@ -1,5 +1,6 @@
 package com.marcmeru.triviagame.ui
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -18,9 +19,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 fun QuizScreen(
     modifier: Modifier = Modifier,
     viewModel: QuizViewModel = viewModel(),
-    gameConfig: GameConfig  // ← Añadir este parámetro
+    gameConfig: GameConfig
 ) {
-    // LaunchedEffect para iniciar el juego cuando cambie la config
     LaunchedEffect(gameConfig) {
         viewModel.startGame(gameConfig)
     }
@@ -34,79 +34,71 @@ fun QuizScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         when (val state = uiState) {
-            is QuizUiState.Loading -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        CircularProgressIndicator()
-                        Text(
-                            text = "Loading questions...",
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                    }
-                }
-            }
-
-            is QuizUiState.Error -> {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (state.message.contains("429") ||
-                                state.message.contains("Too many"))
-                                MaterialTheme.colorScheme.tertiaryContainer
-                            else
-                                MaterialTheme.colorScheme.errorContainer
-                        )
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = state.message,
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.padding(bottom = 16.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
+            is QuizUiState.Loading -> LoadingView()
+            is QuizUiState.Error -> ErrorView(state.message)
             is QuizUiState.Success -> {
-                // Indicador de racha
-                StreakIndicator(
-                    currentStreak = currentStreak,
-                    bestStreak = bestStreak
+                // Mostrar categoría y dificultad arriba
+                QuestionInfo(
+                    category = state.question.category,
+                    difficulty = state.question.difficulty
                 )
 
+                Spacer(modifier = Modifier.height(8.dp))
+
+                StreakIndicator(currentStreak, bestStreak)
                 Spacer(modifier = Modifier.height(16.dp))
 
                 QuestionContent(
                     question = state.question,
                     selectedAnswer = selectedAnswer,
                     isAnswerSubmitted = isAnswerSubmitted,
-                    onAnswerSelected = { viewModel.selectAnswer(it) },
-                    onSubmitAnswer = { viewModel.submitAnswer() },
-                    onNextQuestion = { viewModel.nextQuestion() },
-                    decodeHtml = { viewModel.decodeHtml(it) }
+                    onAnswerSelected = viewModel::selectAnswer,
+                    onSubmitAnswer = viewModel::submitAnswer,
+                    onNextQuestion = viewModel::nextQuestion,
+                    decodeHtml = viewModel::decodeHtml
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun LoadingView() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            CircularProgressIndicator()
+            Text("Loading questions...", style = MaterialTheme.typography.bodyLarge)
+        }
+    }
+}
+
+@Composable
+fun ErrorView(message: String) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(text = message, style = MaterialTheme.typography.bodyLarge)
             }
         }
     }
@@ -123,11 +115,8 @@ fun StreakIndicator(
             .padding(vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
-        // Racha actual
         Card(
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer
-            )
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
@@ -146,11 +135,8 @@ fun StreakIndicator(
             }
         }
 
-        // Mejor racha
         Card(
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer
-            )
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
@@ -181,18 +167,18 @@ fun QuestionContent(
     onNextQuestion: () -> Unit,
     decodeHtml: (String) -> String
 ) {
+    val isDarkTheme = isSystemInDarkTheme()
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Pregunta
         Text(
             text = decodeHtml(question.question),
             style = MaterialTheme.typography.headlineSmall,
             modifier = Modifier.padding(vertical = 16.dp)
         )
 
-        // Respuestas
         val answers = question.allAnswers
         Column(
             modifier = Modifier
@@ -207,10 +193,19 @@ fun QuestionContent(
                 val showIncorrect = isAnswerSubmitted && isSelected && !isCorrect
 
                 val backgroundColor = when {
-                    showCorrect -> Color(0xFFB7F5C2)
+                    showCorrect -> Color(0xFFB7F5C2) // verde claro
                     showIncorrect -> MaterialTheme.colorScheme.errorContainer
                     isSelected -> MaterialTheme.colorScheme.secondaryContainer
                     else -> MaterialTheme.colorScheme.surface
+                }
+
+                // Color de texto depende del modo oscuro o claro
+                val contentColor = when {
+                    showCorrect && isDarkTheme -> Color(0xFF1B5E20)  // verde oscuro en oscuro para legibilidad
+                    showCorrect && !isDarkTheme -> Color.White       // blanco en claro
+                    showIncorrect -> MaterialTheme.colorScheme.onErrorContainer
+                    isSelected -> MaterialTheme.colorScheme.onSecondaryContainer
+                    else -> MaterialTheme.colorScheme.onSurface
                 }
 
                 Card(
@@ -234,26 +229,29 @@ fun QuestionContent(
                         RadioButton(
                             selected = isSelected,
                             onClick = null,
-                            enabled = !isAnswerSubmitted
+                            enabled = !isAnswerSubmitted,
+                            colors = RadioButtonDefaults.colors(
+                                selectedColor = contentColor,
+                                unselectedColor = contentColor
+                            )
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = decodeHtml(answer),
-                            style = MaterialTheme.typography.bodyLarge
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = contentColor
                         )
                     }
                 }
             }
         }
 
-        // Botón enviar respuesta
         if (selectedAnswer != null && !isAnswerSubmitted) {
             Button(onClick = onSubmitAnswer, modifier = Modifier.fillMaxWidth()) {
                 Text("Submit Answer")
             }
         }
 
-        // Botón siguiente pregunta
         if (isAnswerSubmitted) {
             Button(onClick = onNextQuestion, modifier = Modifier.fillMaxWidth()) {
                 Text("Next Question")
@@ -264,66 +262,19 @@ fun QuestionContent(
 
 
 @Composable
-fun AnswersList(
-    answers: List<String>,
-    selectedAnswer: String?,
-    correctAnswer: String,
-    isAnswerSubmitted: Boolean,
-    onAnswerSelected: (String) -> Unit,
-    decodeHtml: (String) -> String
-) {
-    Column(
+fun QuestionInfo(category: String, difficulty: String) {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .selectableGroup(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        answers.forEach { answer ->
-            val isSelected = selectedAnswer == answer
-            val isCorrect = answer == correctAnswer
-            val showCorrect = isAnswerSubmitted && isCorrect
-            val showIncorrect = isAnswerSubmitted && isSelected && !isCorrect
-
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .selectable(
-                        selected = isSelected,
-                        onClick = { onAnswerSelected(answer) },
-                        role = Role.RadioButton,
-                        enabled = !isAnswerSubmitted
-                    ),
-                colors = CardDefaults.cardColors(
-                    containerColor = when {
-                        showCorrect -> MaterialTheme.colorScheme.primaryContainer
-                        showIncorrect -> MaterialTheme.colorScheme.errorContainer
-                        isSelected -> MaterialTheme.colorScheme.secondaryContainer
-                        else -> MaterialTheme.colorScheme.surface
-                    }
-                ),
-                border = if (isSelected) {
-                    CardDefaults.outlinedCardBorder()
-                } else null
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RadioButton(
-                        selected = isSelected,
-                        onClick = null,
-                        enabled = !isAnswerSubmitted
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = decodeHtml(answer),
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                }
-            }
-        }
+        Text(
+            text = category,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        DifficultyChip(difficulty)
     }
 }
 
@@ -338,7 +289,8 @@ fun DifficultyChip(difficulty: String) {
 
     Surface(
         shape = MaterialTheme.shapes.small,
-        color = color.copy(alpha = 0.2f)
+        color = color.copy(alpha = 0.2f),
+        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
     ) {
         Text(
             text = difficulty.uppercase(),
@@ -348,3 +300,4 @@ fun DifficultyChip(difficulty: String) {
         )
     }
 }
+

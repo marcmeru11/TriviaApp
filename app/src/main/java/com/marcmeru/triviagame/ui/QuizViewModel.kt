@@ -26,7 +26,6 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
     private val _isAnswerSubmitted = MutableStateFlow(false)
     val isAnswerSubmitted: StateFlow<Boolean> = _isAnswerSubmitted.asStateFlow()
 
-    // Sistema de racha
     private val _currentStreak = MutableStateFlow(0)
     val currentStreak: StateFlow<Int> = _currentStreak.asStateFlow()
 
@@ -36,57 +35,47 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
     private val _lastAnswerWasCorrect = MutableStateFlow<Boolean?>(null)
     val lastAnswerWasCorrect: StateFlow<Boolean?> = _lastAnswerWasCorrect.asStateFlow()
 
-    // Lista de preguntas y posición actual
-    private val questionQueue = mutableListOf<com.marcmeru.triviagame.data.Question>()
+    private var questionQueue = mutableListOf<com.marcmeru.triviagame.data.Question>()
     private var currentQuestionIndex = 0
 
-    private val _currentQuestionNumber = MutableStateFlow(1)
-    val currentQuestionNumber: StateFlow<Int> = _currentQuestionNumber.asStateFlow()
+    // Guardar config y comparar en startGame
+    private var currentGameConfig: GameConfig? = null
 
-    private val _totalQuestions = MutableStateFlow(10)
-    val totalQuestions: StateFlow<Int> = _totalQuestions.asStateFlow()
-
-    // Configuración del juego
-    private var gameConfig = GameConfig()
-
-    init {
-        // No cargar preguntas automáticamente
-        // Esperar a que se llame startGame()
+    fun startGame(config: GameConfig) {
+        if (currentGameConfig == config && questionQueue.isNotEmpty()) {
+            // Misma config, no reiniciar
+            return
+        }
+        currentGameConfig = config
+        resetGame()
+        fetchQuestions()
     }
 
-    // Método público para iniciar juego con configuración
-    fun startGame(config: GameConfig = GameConfig()) {
-        gameConfig = config
+    private fun resetGame() {
         _currentStreak.value = 0
         _lastAnswerWasCorrect.value = null
-        fetchQuestions()
+        _selectedAnswer.value = null
+        _isAnswerSubmitted.value = false
+        questionQueue.clear()
+        currentQuestionIndex = 0
+        _uiState.value = QuizUiState.Loading
     }
 
     private fun fetchQuestions() {
         viewModelScope.launch {
-            _uiState.value = QuizUiState.Loading
-            _selectedAnswer.value = null
-            _isAnswerSubmitted.value = false
-
             try {
                 val token = tokenManager.getValidToken()
-
                 val response = RetrofitInstance.api.getQuestions(
-                    amount = gameConfig.amount,  // ← Usar config
+                    amount = currentGameConfig?.amount ?: 10,
                     type = "multiple",
                     token = token,
-                    category = gameConfig.category,  // ← Usar config
-                    difficulty = gameConfig.difficulty  // ← Usar config
+                    category = currentGameConfig?.category,
+                    difficulty = currentGameConfig?.difficulty
                 )
-
                 when (response.response_code) {
                     0 -> {
                         if (response.results.isNotEmpty()) {
-                            questionQueue.clear()
                             questionQueue.addAll(response.results)
-                            currentQuestionIndex = 0
-                            _currentQuestionNumber.value = 1
-                            _totalQuestions.value = questionQueue.size
                             showCurrentQuestion()
                         } else {
                             _uiState.value = QuizUiState.Error("No questions received")
@@ -98,26 +87,17 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     4 -> {
                         _uiState.value = QuizUiState.Error(
-                            "🎉 You've answered all available questions!\n\n" +
-                                    "The session token has run out of questions. " +
-                                    "This will reset automatically."
+                            "🎉 You've answered all available questions! The session token has run out."
                         )
                         tokenManager.clearToken()
                     }
                     else -> {
-                        _uiState.value = QuizUiState.Error(
-                            "API Error (Code ${response.response_code})"
-                        )
+                        _uiState.value = QuizUiState.Error("API Error (Code ${response.response_code})")
                     }
                 }
-
             } catch (e: retrofit2.HttpException) {
                 if (e.code() == 429) {
-                    _uiState.value = QuizUiState.Error(
-                        "⏱️ Too many requests!\n\n" +
-                                "You're going too fast! The API has a rate limit.\n" +
-                                "Please wait a few seconds before trying again."
-                    )
+                    _uiState.value = QuizUiState.Error("⏱️ Too many requests! Please wait and try again.")
                 } else {
                     _uiState.value = QuizUiState.Error("HTTP Error ${e.code()}: ${e.message()}")
                 }
@@ -130,18 +110,19 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
     private fun showCurrentQuestion() {
         if (currentQuestionIndex < questionQueue.size) {
             _uiState.value = QuizUiState.Success(questionQueue[currentQuestionIndex])
-            _currentQuestionNumber.value = currentQuestionIndex + 1
-        } else {
-            fetchQuestions()
         }
     }
 
     fun nextQuestion() {
+        currentQuestionIndex++
         _selectedAnswer.value = null
         _isAnswerSubmitted.value = false
         _lastAnswerWasCorrect.value = null
-        currentQuestionIndex++
-        showCurrentQuestion()
+        if (currentQuestionIndex >= questionQueue.size) {
+            fetchQuestions()
+        } else {
+            showCurrentQuestion()
+        }
     }
 
     fun selectAnswer(answer: String) {
@@ -152,36 +133,23 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
 
     fun submitAnswer() {
         _isAnswerSubmitted.value = true
-
-        // Verificar si la respuesta es correcta
         val currentQuestion = (_uiState.value as? QuizUiState.Success)?.question
         val selectedAns = _selectedAnswer.value
-
         if (currentQuestion != null && selectedAns != null) {
             val isCorrect = currentQuestion.isCorrectAnswer(selectedAns)
             _lastAnswerWasCorrect.value = isCorrect
-
             if (isCorrect) {
-                // Incrementar racha
                 _currentStreak.value += 1
-
-                // Actualizar mejor racha si es necesario
                 if (_currentStreak.value > _bestStreak.value) {
                     _bestStreak.value = _currentStreak.value
                     streakManager.saveBestStreak(_currentStreak.value)
                 }
             } else {
-                // Reiniciar racha
                 _currentStreak.value = 0
             }
         }
     }
 
-    fun resetStreak() {
-        _currentStreak.value = 0
-    }
-
-    fun decodeHtml(text: String): String {
-        return Html.fromHtml(text, Html.FROM_HTML_MODE_LEGACY).toString()
-    }
+    fun decodeHtml(text: String): String =
+        Html.fromHtml(text, Html.FROM_HTML_MODE_LEGACY).toString()
 }
