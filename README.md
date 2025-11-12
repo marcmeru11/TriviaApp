@@ -2,6 +2,10 @@
 
 A modern Android trivia quiz application built with Jetpack Compose and Material Design 3, featuring questions from the [Open Trivia Database API](https://opentdb.com/).
 
+## Releases
+
+Take a look on the [latest release](https://github.com/marcmeru11/TriviaApp/releases).
+
 ## Overview
 
 TriviaApp is a native Android application that provides an interactive trivia quiz experience with customizable game settings, streak tracking, and a clean Material You interface. The app follows the MVVM architecture with reactive state management using Kotlin StateFlow and Jetpack Compose for the UI layer. 
